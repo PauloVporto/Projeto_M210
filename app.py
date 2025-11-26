@@ -3,6 +3,126 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from simplex import SimplexSolver
+from prettytable import PrettyTable
+from io import StringIO
+from contextlib import redirect_stdout
+
+# ======================================================
+# Funções auxiliares para mostrar o Simplex em formato tableau
+# ======================================================
+
+def simplex_tableau_verbose(c, A, b):
+    """Monta o tableau inicial do método Simplex (forma padrão Max)."""
+    A = np.array(A, dtype=float)
+    b = np.array(b, dtype=float)
+    m, n = A.shape  # m = nº restrições, n = nº variáveis de decisão
+
+    # Tamanho do tableau: m linhas de restrições + 1 linha de Z
+    # Colunas: n variáveis + m folgas + 1 termo independente (b)
+    tableau = np.zeros((m + 1, n + m + 1), dtype=float)
+
+    # Parte das variáveis de decisão
+    tableau[:m, :n] = A
+    # Identidade para variáveis de folga
+    tableau[:m, n:n + m] = np.eye(m)
+    # Coluna b (lado direito)
+    tableau[:m, -1] = b
+    # Linha da função objetivo (coeficientes negativos para Max)
+    tableau[-1, :n] = -np.array(c, dtype=float)
+    return tableau
+
+
+def mostrar_tableau(tableau):
+    """Mostra o tableau com nomes de linhas e colunas (estilo PrettyTable)."""
+    m = tableau.shape[0] - 1          # nº restrições
+    total_cols = tableau.shape[1]
+    n = total_cols - m - 1            # nº variáveis de decisão
+
+    # Nomes das colunas: x1..xn, s1..sm, b
+    colunas = [f"x{i+1}" for i in range(n)] + [f"s{i+1}" for i in range(m)] + ["b"]
+
+    t = PrettyTable()
+    t.field_names = ["Linha"] + colunas
+
+    for idx, row in enumerate(tableau):
+        if idx < m:
+            nome_linha = f"R{idx+1}"
+        else:
+            nome_linha = "Z"
+        t.add_row([nome_linha] + [f"{val:.2f}" for val in row])
+    print(t)
+
+
+def simplex_verbose(c, A, b):
+    """
+    Executa o método Simplex (tableau) e imprime todas as iterações
+    em formato de tabela ASCII (PrettyTable).
+    """
+    tableau = simplex_tableau_verbose(c, A, b)
+    m, n = len(A), len(A[0])
+    iteracao = 0
+
+    print("Tableau inicial:")
+    mostrar_tableau(tableau)
+
+    # Enquanto houver coeficiente negativo na linha de Z (colunas das variáveis)
+    while any(tableau[-1, :-1] < 0):
+        iteracao += 1
+        print("\n" + "=" * 70)
+        print(f"Iteração {iteracao}:")
+
+        # Escolha da coluna pivô (variável que entra na base)
+        col_pivo = int(np.argmin(tableau[-1, :-1]))
+
+        # Verifica se o problema é ilimitado
+        if np.all(tableau[:-1, col_pivo] <= 0):
+            print("Problema ilimitado (sem solução ótima finita).")
+            return None, None
+
+        # Razão mínima (evita divisão por zero)
+        razoes = np.full(m, np.inf)
+        for i in range(m):
+            if tableau[i, col_pivo] > 0:
+                razoes[i] = tableau[i, -1] / tableau[i, col_pivo]
+        lin_pivo = int(np.argmin(razoes))
+
+        print(f"Coluna pivô: {col_pivo}  |  Linha pivô: {lin_pivo}")
+
+        # Normaliza a linha pivô
+        pivo = tableau[lin_pivo, col_pivo]
+        tableau[lin_pivo, :] /= pivo
+
+        # Zera as demais posições da coluna pivô
+        for i in range(tableau.shape[0]):
+            if i != lin_pivo:
+                fator = tableau[i, col_pivo]
+                tableau[i, :] -= fator * tableau[lin_pivo, :]
+
+        print("Tableau após o pivoteamento:")
+        mostrar_tableau(tableau)
+
+    print("\n" + "=" * 70)
+    print("Solução ótima encontrada:")
+    mostrar_tableau(tableau)
+
+    # Recupera os valores ótimos das variáveis de decisão
+    n_vars = len(c)
+    x = np.zeros(n_vars)
+    for j in range(n_vars):
+        col = tableau[:-1, j]
+        if np.isclose(col, 0).sum() == (len(col) - 1) and np.isclose(col, 1).sum() == 1:
+            lin = int(np.where(np.isclose(col, 1))[0][0])
+            x[j] = tableau[lin, -1]
+
+    z_otimo = tableau[-1, -1]
+
+    print("\nValores ótimos das variáveis:")
+    for i, val in enumerate(x, start=1):
+        print(f"x{i} = {val:.4f}")
+    print(f"\nValor ótimo da função objetivo Z* = {z_otimo:.4f}")
+
+    return x, z_otimo
+
 
 # =========================
 # 🎨 CONFIGURAÇÃO DA PÁGINA
@@ -184,11 +304,7 @@ if st.button("🚀 Resolver com Simplex"):
             st.dataframe(df_shadow, use_container_width=True)
 
         with tab4:
-            st.markdown("#### 📋 Tableau Final do Simplex")
-            st.write(
-                "Linhas representam as restrições (R1, R2, ...) e a última linha representa a função objetivo (Z). "
-                "As colunas mostram as variáveis de decisão (x), de folga (s) e o termo independente b."
-            )
+            st.markdown("#### 📋 Tableau Final do Simplex (resumo)")
             num_vars = int(n)
             num_rest = int(m)
             colunas = (
@@ -203,6 +319,24 @@ if st.button("🚀 Resolver com Simplex"):
                 columns=colunas
             )
             st.dataframe(df_tableau, use_container_width=True)
+
+            st.markdown("#### 🧮 Passo a passo do método Simplex (tableaus ASCII)")
+            st.write(
+                "Abaixo estão todas as iterações do método Simplex, no mesmo formato "
+                "utilizado no console, com bordas e nomes de linhas/colunas."
+            )
+
+            # Captura toda a saída do simplex_verbose (tableaux, iterações, solução)
+            buffer = StringIO()
+            with redirect_stdout(buffer):
+                simplex_verbose(c, A, b)
+            texto_saida = buffer.getvalue()
+
+            st.text_area(
+                "Tableaus gerados em cada iteração:",
+                value=texto_saida,
+                height=500
+            )
 
         # Gráfico para 2 variáveis
         if int(n) == 2:

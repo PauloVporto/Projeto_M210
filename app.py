@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from simplex import SimplexSolver
-from prettytable import PrettyTable
+
 from io import StringIO
 from contextlib import redirect_stdout
 
@@ -184,7 +184,7 @@ st.markdown("""
 # =========================
 # 🧠 TÍTULO E INTRODUÇÃO
 # =========================
-st.title("📊 Método Simplex - Trabalho Prático M210")
+st.title(" Trabalho Prático M210")
 st.markdown("""
 ### 💡 Objetivo
 Resolver **Problemas de Programação Linear (PPL)** utilizando o **método Simplex Tableau**, implementado totalmente em Python, **sem bibliotecas de otimização**.
